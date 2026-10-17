@@ -8,6 +8,7 @@ REQUIRED_STRINGS = {
     "CX_AGENT_ID": "test-cx-agent-id",
     "CX_LOCATION": "test-cx-location",
     "DYNAMODB_TABLE_NAME": "test-dynamodb-table",
+    "SESSION_HMAC_SECRET": "test-session-hmac-secret",
 }
 
 REQUIRED_INTS = {

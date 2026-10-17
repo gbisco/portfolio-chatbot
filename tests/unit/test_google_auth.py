@@ -23,6 +23,7 @@ def make_config(**overrides) -> Config:
         "global_hourly_limit": 50,
         "global_daily_limit": 200,
         "cx_timeout_seconds": 15,
+        "session_hmac_secret": "test-session-hmac-secret",
     }
     values.update(overrides)
     return Config(**values)

@@ -19,6 +19,7 @@ class Config:
     global_hourly_limit: int
     global_daily_limit: int
     cx_timeout_seconds: int
+    session_hmac_secret: str
 
 
 _REQUIRED_STRINGS = (
@@ -27,6 +28,7 @@ _REQUIRED_STRINGS = (
     "CX_AGENT_ID",
     "CX_LOCATION",
     "DYNAMODB_TABLE_NAME",
+    "SESSION_HMAC_SECRET",
 )
 
 _REQUIRED_POSITIVE_INTS = (
@@ -81,4 +83,5 @@ def load_config() -> Config:
         global_hourly_limit=ints["GLOBAL_HOURLY_LIMIT"],
         global_daily_limit=ints["GLOBAL_DAILY_LIMIT"],
         cx_timeout_seconds=ints["CX_TIMEOUT_SECONDS"],
+        session_hmac_secret=strings["SESSION_HMAC_SECRET"],
     )
