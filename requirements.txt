@@ -1,3 +1,5 @@
 google-auth
 google-cloud-dialogflow-cx
 boto3
+requests
+CacheControl
