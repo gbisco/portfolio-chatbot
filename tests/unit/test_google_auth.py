@@ -13,16 +13,15 @@ from src.config import Config
 def make_config(**overrides) -> Config:
     values = {
         "google_client_id": "test-google-client-id",
-        "gcp_project_id": "test-gcp-project-id",
-        "cx_agent_id": "test-cx-agent-id",
-        "cx_location": "test-cx-location",
+        "gemini_api_key": "test-gemini-api-key",
+        "gemini_model": "gemini-3.5-flash-lite",
         "dynamodb_table_name": "test-dynamodb-table",
         "max_message_length": 100,
         "max_request_bytes": 2048,
         "user_daily_limit": 10,
         "global_hourly_limit": 50,
         "global_daily_limit": 200,
-        "cx_timeout_seconds": 15,
+        "gemini_timeout_seconds": 30,
         "session_hmac_secret": "test-session-hmac-secret",
     }
     values.update(overrides)

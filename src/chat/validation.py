@@ -1,6 +1,8 @@
-
 from dataclasses import dataclass
 from uuid import UUID
+
+
+MAX_CONVERSATION_TOKEN_LENGTH = 4096
 
 
 class ChatValidationError(ValueError):
@@ -11,16 +13,24 @@ class ChatValidationError(ValueError):
 class ChatRequest:
     message: str
     conversation_id: str
+    conversation_token: str | None = None
 
 
 def validate_chat_request(
     payload: object,
     max_message_length: int,
 ) -> ChatRequest:
+    """Validate the structure and content of a chat request."""
+
     if not isinstance(payload, dict):
         raise ChatValidationError("Request body must be a JSON object")
 
-    if set(payload) != {"message", "conversation_id"}:
+    required_fields = {"message", "conversation_id"}
+    allowed_fields = required_fields | {"conversation_token"}
+
+    if not required_fields.issubset(payload) or not set(payload).issubset(
+        allowed_fields
+    ):
         raise ChatValidationError("Invalid request fields")
 
     message = payload["message"]
@@ -46,7 +56,18 @@ def validate_chat_request(
     if str(parsed_uuid) != conversation_id:
         raise ChatValidationError("Invalid conversation ID")
 
+    conversation_token = payload.get("conversation_token")
+
+    if conversation_token is not None:
+        if (
+            not isinstance(conversation_token, str)
+            or not conversation_token
+            or len(conversation_token) > MAX_CONVERSATION_TOKEN_LENGTH
+        ):
+            raise ChatValidationError("Invalid conversation token")
+
     return ChatRequest(
         message=message,
         conversation_id=conversation_id,
+        conversation_token=conversation_token,
     )
