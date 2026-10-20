@@ -8,7 +8,10 @@ from src.auth.google_auth import (
 )
 from src.auth.session import SessionError
 from src.chat.chat_service import process_chat
-from src.chat.gemini_client import GeminiServiceError
+from src.chat.gemini_client import (
+    GeminiConversationExpired,
+    GeminiServiceError,
+)
 from src.chat.rate_limit import RateLimitDenied, RateLimitServiceError
 from src.chat.validation import ChatValidationError
 from src.config import ConfigurationError, load_config
@@ -155,6 +158,13 @@ def lambda_handler(event: dict, context) -> dict:
             400,
             "invalid_request",
             "The chat request is invalid.",
+        )
+
+    except GeminiConversationExpired:
+        return _error(
+            401,
+            "conversation_expired",
+            "Your conversation has expired. Please start a new chat.",
         )
 
     except SessionError as exc:

@@ -9,7 +9,10 @@ from src.auth.google_auth import (
     AuthenticationServiceError,
 )
 from src.auth.session import SessionError
-from src.chat.gemini_client import GeminiServiceError
+from src.chat.gemini_client import (
+    GeminiConversationExpired,
+    GeminiServiceError,
+)
 from src.chat.rate_limit import RateLimitDenied, RateLimitServiceError
 from src.chat.validation import ChatValidationError
 from src.chat.chat_service import ChatResponse
@@ -254,6 +257,11 @@ def test_invalid_base64_body_is_rejected(mock_chat):
         ),
         (
             SessionError("Conversation session expired"),
+            401,
+            "conversation_expired",
+        ),
+        (
+            GeminiConversationExpired("previous interaction missing"),
             401,
             "conversation_expired",
         ),

@@ -1,7 +1,8 @@
 from dataclasses import dataclass
 
+import httpx
 from google import genai
-from google.genai import types
+from google.genai import errors, types
 
 from src.config import Config
 
@@ -10,10 +11,34 @@ class GeminiServiceError(Exception):
     """Raised when Gemini cannot complete a request."""
 
 
+class GeminiConversationExpired(Exception):
+    """Raised when Gemini cannot retrieve a previous interaction."""
+
+
 @dataclass(frozen=True)
 class GeminiResponse:
     text: str
     interaction_id: str
+
+
+def _interactions_error_code(exc: errors.APIError) -> object:
+    details = exc.details
+
+    if not isinstance(details, dict):
+        return None
+
+    payload = details.get("error", details)
+
+    if not isinstance(payload, dict):
+        return None
+
+    return payload.get("code")
+
+
+def _is_missing_previous_interaction(exc: errors.ClientError) -> bool:
+    """True when Gemini reports that a stored interaction cannot be retrieved."""
+
+    return exc.code == 404 and _interactions_error_code(exc) == "not_found"
 
 
 def send_message(
@@ -46,7 +71,19 @@ def send_message(
     try:
         interaction = client.interactions.create(**request)
 
-    except Exception as exc:
+    except errors.ClientError as exc:
+        if previous_interaction_id is not None and _is_missing_previous_interaction(
+            exc
+        ):
+            raise GeminiConversationExpired(
+                "Gemini could not retrieve the previous interaction"
+            ) from exc
+
+        raise GeminiServiceError(
+            "Gemini is temporarily unavailable"
+        ) from exc
+
+    except (errors.APIError, httpx.RequestError, TimeoutError) as exc:
         raise GeminiServiceError(
             "Gemini is temporarily unavailable"
         ) from exc

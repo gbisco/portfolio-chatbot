@@ -8,10 +8,6 @@ import time
 from src.auth.google_auth import AuthenticatedUser
 
 
-TOKEN_LIFETIME_SECONDS = 24 * 60 * 60
-MAX_TOKEN_LENGTH = 4096
-
-
 class SessionError(ValueError):
     """Raised when a conversation token is invalid or unauthorized."""
 
@@ -42,6 +38,7 @@ def sign_interaction(
     conversation_id: str,
     interaction_id: str,
     secret: str,
+    token_lifetime_seconds: int,
 ) -> str:
     """Create a signed, expiring token for a Gemini interaction."""
 
@@ -55,6 +52,8 @@ def sign_interaction(
         or not interaction_id
         or not isinstance(secret, str)
         or not secret
+        or not isinstance(token_lifetime_seconds, int)
+        or token_lifetime_seconds <= 0
     ):
         raise ValueError("Missing required session information")
 
@@ -62,7 +61,7 @@ def sign_interaction(
         "user": _user_binding(user.user_id, secret),
         "conversation_id": conversation_id,
         "interaction_id": interaction_id,
-        "expires_at": int(time.time()) + TOKEN_LIFETIME_SECONDS,
+        "expires_at": int(time.time()) + token_lifetime_seconds,
     }
 
     encoded = _encode(
@@ -83,13 +82,16 @@ def verify_interaction(
     user: AuthenticatedUser,
     conversation_id: str,
     secret: str,
+    max_token_length: int,
 ) -> str:
     """Verify conversation ownership and expiration."""
 
     if (
         not isinstance(token, str)
         or not token
-        or len(token) > MAX_TOKEN_LENGTH
+        or not isinstance(max_token_length, int)
+        or max_token_length <= 0
+        or len(token) > max_token_length
         or not isinstance(user, AuthenticatedUser)
         or not isinstance(user.user_id, str)
         or not user.user_id

@@ -19,6 +19,8 @@ class Config:
     global_daily_limit: int
     gemini_timeout_seconds: int
     session_hmac_secret: str
+    session_token_ttl_seconds: int
+    max_conversation_token_length: int
 
 
 _REQUIRED_STRINGS = (
@@ -36,6 +38,8 @@ _REQUIRED_POSITIVE_INTS = (
     "GLOBAL_HOURLY_LIMIT",
     "GLOBAL_DAILY_LIMIT",
     "GEMINI_TIMEOUT_SECONDS",
+    "SESSION_TOKEN_TTL_SECONDS",
+    "MAX_CONVERSATION_TOKEN_LENGTH",
 )
 
 
@@ -98,4 +102,6 @@ def load_config() -> Config:
         global_daily_limit=ints["GLOBAL_DAILY_LIMIT"],
         gemini_timeout_seconds=ints["GEMINI_TIMEOUT_SECONDS"],
         session_hmac_secret=strings["SESSION_HMAC_SECRET"],
+        session_token_ttl_seconds=ints["SESSION_TOKEN_TTL_SECONDS"],
+        max_conversation_token_length=ints["MAX_CONVERSATION_TOKEN_LENGTH"],
     )

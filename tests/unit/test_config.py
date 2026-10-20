@@ -18,6 +18,8 @@ REQUIRED_INTS = {
     "GLOBAL_HOURLY_LIMIT": "50",
     "GLOBAL_DAILY_LIMIT": "200",
     "GEMINI_TIMEOUT_SECONDS": "30",
+    "SESSION_TOKEN_TTL_SECONDS": "86400",
+    "MAX_CONVERSATION_TOKEN_LENGTH": "4096",
 }
 
 ALL_REQUIRED = {**REQUIRED_STRINGS, **REQUIRED_INTS}
@@ -50,6 +52,8 @@ def test_load_config_with_valid_environment(monkeypatch):
     assert config.global_daily_limit == 200
     assert config.gemini_timeout_seconds == 30
     assert config.session_hmac_secret == "test-session-hmac-secret"
+    assert config.session_token_ttl_seconds == 86400
+    assert config.max_conversation_token_length == 4096
 
 
 @pytest.mark.parametrize("missing_name", list(ALL_REQUIRED))

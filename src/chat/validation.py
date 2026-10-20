@@ -2,9 +2,6 @@ from dataclasses import dataclass
 from uuid import UUID
 
 
-MAX_CONVERSATION_TOKEN_LENGTH = 4096
-
-
 class ChatValidationError(ValueError):
     """Raised when a chat request contains invalid input."""
 
@@ -19,6 +16,7 @@ class ChatRequest:
 def validate_chat_request(
     payload: object,
     max_message_length: int,
+    max_conversation_token_length: int,
 ) -> ChatRequest:
     """Validate the structure and content of a chat request."""
 
@@ -62,7 +60,7 @@ def validate_chat_request(
         if (
             not isinstance(conversation_token, str)
             or not conversation_token
-            or len(conversation_token) > MAX_CONVERSATION_TOKEN_LENGTH
+            or len(conversation_token) > max_conversation_token_length
         ):
             raise ChatValidationError("Invalid conversation token")
 

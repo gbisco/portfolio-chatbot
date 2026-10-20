@@ -23,6 +23,8 @@ def make_config(**overrides) -> Config:
         "global_daily_limit": 200,
         "gemini_timeout_seconds": 30,
         "session_hmac_secret": "test-session-hmac-secret",
+        "session_token_ttl_seconds": 86400,
+        "max_conversation_token_length": 4096,
     }
     values.update(overrides)
     return Config(**values)

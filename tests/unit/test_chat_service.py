@@ -6,7 +6,11 @@ import pytest
 from src.auth.google_auth import AuthenticatedUser, AuthenticationError
 from src.auth.session import SessionError
 from src.chat.chat_service import ChatResponse, process_chat
-from src.chat.gemini_client import GeminiResponse, GeminiServiceError
+from src.chat.gemini_client import (
+    GeminiConversationExpired,
+    GeminiResponse,
+    GeminiServiceError,
+)
 from src.chat.rate_limit import RateLimitDenied
 
 
@@ -19,6 +23,8 @@ def config():
         google_client_id="test-google-client-id",
         max_message_length=100,
         session_hmac_secret="test-session-secret",
+        session_token_ttl_seconds=86400,
+        max_conversation_token_length=4096,
     )
 
 
@@ -34,14 +40,18 @@ def dependencies(monkeypatch):
         calls.append("auth")
         return AuthenticatedUser(user_id="google-user-123")
 
-    def fake_validate(payload, max_message_length):
+    def fake_validate(payload, max_message_length, max_conversation_token_length):
         calls.append("validation")
 
         from src.chat.validation import validate_chat_request
 
-        return validate_chat_request(payload, max_message_length)
+        return validate_chat_request(
+            payload,
+            max_message_length,
+            max_conversation_token_length,
+        )
 
-    def fake_verify(token, user, conversation_id, secret):
+    def fake_verify(token, user, conversation_id, secret, max_token_length):
         calls.append("session_verify")
         return "previous-interaction-123"
 
@@ -59,7 +69,7 @@ def dependencies(monkeypatch):
             interaction_id="new-interaction-456",
         )
 
-    def fake_sign(user, conversation_id, interaction_id, secret):
+    def fake_sign(user, conversation_id, interaction_id, secret, token_lifetime_seconds):
         calls.append("session_sign")
         return "new-signed-token"
 
@@ -205,6 +215,29 @@ def test_gemini_failure_is_propagated(
 
     with pytest.raises(GeminiServiceError):
         process_chat("google-id-token", make_payload(), config)
+
+    assert "rate_limit" in dependencies.calls
+    assert "session_sign" not in dependencies.calls
+
+
+def test_expired_gemini_interaction_is_propagated(
+    dependencies, config, monkeypatch
+):
+    from src.chat import chat_service
+
+    def reject_gemini(*args, **kwargs):
+        raise GeminiConversationExpired(
+            "Gemini could not retrieve the previous interaction"
+        )
+
+    monkeypatch.setattr(chat_service, "send_message", reject_gemini)
+
+    with pytest.raises(GeminiConversationExpired):
+        process_chat(
+            "google-id-token",
+            make_payload(conversation_token="existing-signed-token"),
+            config,
+        )
 
     assert "rate_limit" in dependencies.calls
     assert "session_sign" not in dependencies.calls

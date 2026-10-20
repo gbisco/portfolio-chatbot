@@ -1,8 +1,11 @@
 from types import SimpleNamespace
 
+import httpx
 import pytest
+from google.genai import errors
 
 from src.chat.gemini_client import (
+    GeminiConversationExpired,
     GeminiResponse,
     GeminiServiceError,
     send_message,
@@ -127,15 +130,104 @@ def test_invalid_responses_are_rejected(text, interaction_id):
         )
 
 
-def test_api_failure_is_handled():
+def make_client_error(status_code, error_code, message="error"):
+    return errors.ClientError(
+        status_code,
+        {
+            "error": {
+                "code": error_code,
+                "message": message,
+            }
+        },
+    )
+
+
+def test_server_error_is_handled():
     client = FakeGeminiClient(
-        error=RuntimeError("API unavailable")
+        error=errors.ServerError(503, {"error": {"code": "service_unavailable"}})
     )
 
     with pytest.raises(
         GeminiServiceError,
         match="temporarily unavailable",
     ):
+        send_message(
+            "Hello",
+            make_config(),
+            system_instruction=TEST_INSTRUCTIONS,
+            client=client,
+        )
+
+
+def test_transport_error_is_handled():
+    client = FakeGeminiClient(
+        error=httpx.ConnectError("connection failed")
+    )
+
+    with pytest.raises(
+        GeminiServiceError,
+        match="temporarily unavailable",
+    ):
+        send_message(
+            "Hello",
+            make_config(),
+            system_instruction=TEST_INSTRUCTIONS,
+            client=client,
+        )
+
+
+def test_missing_previous_interaction_is_expired():
+    client = FakeGeminiClient(
+        error=make_client_error(
+            404,
+            "not_found",
+            "Failed to get completed interaction: Result not found.",
+        )
+    )
+
+    with pytest.raises(GeminiConversationExpired):
+        send_message(
+            "Tell me more",
+            make_config(),
+            system_instruction=TEST_INSTRUCTIONS,
+            previous_interaction_id="expired-interaction",
+            client=client,
+        )
+
+
+def test_not_found_without_previous_interaction_is_service_error():
+    client = FakeGeminiClient(
+        error=make_client_error(404, "not_found")
+    )
+
+    with pytest.raises(GeminiServiceError):
+        send_message(
+            "Hello",
+            make_config(),
+            system_instruction=TEST_INSTRUCTIONS,
+            client=client,
+        )
+
+
+def test_model_not_found_is_not_conversation_expired():
+    client = FakeGeminiClient(
+        error=make_client_error(404, "model_not_found")
+    )
+
+    with pytest.raises(GeminiServiceError):
+        send_message(
+            "Tell me more",
+            make_config(),
+            system_instruction=TEST_INSTRUCTIONS,
+            previous_interaction_id="previous-123",
+            client=client,
+        )
+
+
+def test_programming_errors_are_not_swallowed():
+    client = FakeGeminiClient(error=TypeError("unexpected argument"))
+
+    with pytest.raises(TypeError):
         send_message(
             "Hello",
             make_config(),

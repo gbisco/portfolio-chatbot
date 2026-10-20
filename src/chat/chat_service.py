@@ -46,6 +46,7 @@ def process_chat(
     request = validate_chat_request(
         payload,
         config.max_message_length,
+        config.max_conversation_token_length,
     )
 
     # Verify the visitor's Google identity.
@@ -60,6 +61,7 @@ def process_chat(
             user,
             request.conversation_id,
             config.session_hmac_secret,
+            config.max_conversation_token_length,
         )
 
     # Enforce account and global usage limits before calling Gemini.
@@ -82,6 +84,7 @@ def process_chat(
         request.conversation_id,
         result.interaction_id,
         config.session_hmac_secret,
+        config.session_token_ttl_seconds,
     )
 
     return ChatResponse(
