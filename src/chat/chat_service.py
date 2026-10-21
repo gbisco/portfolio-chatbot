@@ -1,16 +1,12 @@
 from dataclasses import dataclass
-from functools import lru_cache
-from pathlib import Path
 
 from src.auth.google_auth import verify_google_id_token
 from src.auth.session import sign_interaction, verify_interaction
 from src.chat.gemini_client import send_message
+from src.chat.knowledge import get_document, load_system_instruction
 from src.chat.rate_limit import enforce_rate_limits
 from src.chat.validation import validate_chat_request
 from src.config import Config
-
-
-KNOWLEDGE_DIR = Path(__file__).resolve().parent.parent / "knowledge"
 
 
 @dataclass(frozen=True)
@@ -18,21 +14,6 @@ class ChatResponse:
     message: str
     conversation_id: str
     conversation_token: str
-
-
-@lru_cache(maxsize=1)
-def load_portfolio_instructions() -> str:
-    """Load instructions and knowledge once per Lambda execution environment."""
-
-    instructions = (KNOWLEDGE_DIR / "instructions.md").read_text(
-        encoding="utf-8"
-    )
-
-    portfolio = (KNOWLEDGE_DIR / "portfolio.md").read_text(
-        encoding="utf-8"
-    )
-
-    return f"{instructions}\n\n# Portfolio Knowledge\n\n{portfolio}"
 
 
 def process_chat(
@@ -67,8 +48,8 @@ def process_chat(
     # Enforce account and global usage limits before calling Gemini.
     enforce_rate_limits(user, config)
 
-    # Load portfolio knowledge.
-    system_instruction = load_portfolio_instructions()
+    # Load system instructions and the document catalog.
+    system_instruction = load_system_instruction()
 
     # Send the message to Gemini.
     result = send_message(
@@ -76,6 +57,7 @@ def process_chat(
         config,
         system_instruction=system_instruction,
         previous_interaction_id=previous_interaction_id,
+        document_loader=get_document,
     )
 
     # Bind the returned interaction to the authenticated visitor.

@@ -14,7 +14,7 @@ The backend is designed to be lightweight, secure, and cost-conscious.
 - AWS Lambda verifies Google ID tokens on every chat request.
 - DynamoDB enforces per-account and project-wide usage limits and account blocking.
 - Google Gemini Interactions API generates responses and maintains conversation history through `previous_interaction_id`.
-- Portfolio instructions and knowledge are stored in local Markdown files and passed to Gemini as system instructions.
+- Portfolio instructions and a document catalog are stored in local Markdown files. Gemini retrieves individual knowledge files through an allowlisted `get_portfolio_document` tool.
 - HMAC-signed conversation tokens bind Gemini interaction IDs to authenticated Google users and conversation UUIDs.
 - API Gateway HTTP API is the planned public HTTPS endpoint.
 
@@ -29,9 +29,11 @@ Do not introduce LangChain, Dialogflow CX, n8n, Redis, vector databases, or cust
 - `src/chat/chat_service.py`: Coordinate the complete chat workflow.
 - `src/chat/validation.py`: Validate messages, conversation UUIDs, and optional conversation tokens.
 - `src/chat/rate_limit.py`: Enforce DynamoDB-backed usage limits and account blocking.
-- `src/chat/gemini_client.py`: Communicate with Gemini through the Google Gen AI SDK.
+- `src/chat/gemini_client.py`: Communicate with Gemini through the Google Gen AI SDK and execute allowlisted document retrievals.
+- `src/chat/knowledge.py`: Load instructions and `index.md`, and retrieve allowlisted Markdown documents.
 - `src/knowledge/instructions.md`: Define the chatbot's behavior.
-- `src/knowledge/portfolio.md`: Store factual portfolio information.
+- `src/knowledge/index.md`: Catalog allowlisted knowledge documents.
+- `src/knowledge/*.md`: Factual portfolio documents retrieved on demand.
 - `tests/unit/`: Unit tests with mocked external dependencies.
 
 ## Request Flow
@@ -41,9 +43,10 @@ Do not introduce LangChain, Dialogflow CX, n8n, Redis, vector databases, or cust
 3. `chat_service.py` validates the chat payload and authenticates the visitor.
 4. Follow-up requests verify the signed conversation token and recover the authorized Gemini interaction ID.
 5. DynamoDB atomically enforces account restrictions and usage quotas.
-6. The chat service loads portfolio knowledge and instructions.
-7. `gemini_client.py` sends the message to Gemini using the instructions and optional `previous_interaction_id`.
-8. The backend signs the new interaction ID and returns the response and conversation token.
+6. The chat service loads `instructions.md` and `index.md`.
+7. `gemini_client.py` sends the message to Gemini with those system instructions, the document tool, and optional `previous_interaction_id`.
+8. If Gemini requests documents, the backend retrieves allowlisted files locally and continues the interaction until a final text response is produced.
+9. The backend signs the final interaction ID and returns the response and conversation token.
 
 The frontend must never supply an unverified Gemini interaction ID directly.
 
@@ -81,12 +84,15 @@ Do not introduce additional persistent conversation storage without a demonstrat
 
 ## Portfolio Knowledge
 
-- Portfolio instructions and factual information are maintained separately in `src/knowledge/`.
-- `chat_service.py` loads and combines the Markdown files.
-- `gemini_client.py` handles only Gemini API communication.
-- Portfolio knowledge may be cached in memory between warm Lambda invocations.
+- Portfolio instructions, the document catalog, and factual files are maintained separately in `src/knowledge/`.
+- `chat_service.py` loads `instructions.md` and `index.md` as the Gemini system instruction.
+- `knowledge.py` exposes `get_document(document_id)` for an explicit allowlist of Markdown files. `instructions.md` is not retrievable.
+- `gemini_client.py` registers `get_portfolio_document` on the Interactions API and executes tool calls locally. It does not use Generate Content automatic function calling.
+- Retrieved document text is treated as data, not instructions.
+- Instruction and document contents may be cached in memory between warm Lambda invocations.
 - The assistant must not invent professional experience, qualifications, projects, or education.
 - Use verified portfolio information when updating Markdown content.
+- Do not introduce a database, vector store, or external retrieval service for this knowledge.
 
 ## Security Requirements
 

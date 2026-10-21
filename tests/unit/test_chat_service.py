@@ -6,6 +6,7 @@ import pytest
 from src.auth.google_auth import AuthenticatedUser, AuthenticationError
 from src.auth.session import SessionError
 from src.chat.chat_service import ChatResponse, process_chat
+from src.chat import chat_service
 from src.chat.gemini_client import (
     GeminiConversationExpired,
     GeminiResponse,
@@ -35,6 +36,7 @@ def dependencies(monkeypatch):
     from src.chat import chat_service
 
     calls = []
+    captured = {}
 
     def fake_auth(token, config):
         calls.append("auth")
@@ -64,6 +66,7 @@ def dependencies(monkeypatch):
 
     def fake_send(message, config, **kwargs):
         calls.append("gemini")
+        captured["send_kwargs"] = kwargs
         return GeminiResponse(
             text="Project Alpha uses React.",
             interaction_id="new-interaction-456",
@@ -77,12 +80,13 @@ def dependencies(monkeypatch):
     monkeypatch.setattr(chat_service, "validate_chat_request", fake_validate)
     monkeypatch.setattr(chat_service, "verify_interaction", fake_verify)
     monkeypatch.setattr(chat_service, "enforce_rate_limits", fake_rate_limit)
-    monkeypatch.setattr(chat_service, "load_portfolio_instructions", fake_knowledge)
+    monkeypatch.setattr(chat_service, "load_system_instruction", fake_knowledge)
     monkeypatch.setattr(chat_service, "send_message", fake_send)
     monkeypatch.setattr(chat_service, "sign_interaction", fake_sign)
 
     return SimpleNamespace(
         calls=calls,
+        captured=captured,
         auth=fake_auth,
         gemini=Mock(wraps=fake_send),
     )
@@ -114,6 +118,11 @@ def test_first_message(dependencies, config):
         "gemini",
         "session_sign",
     ]
+    assert dependencies.captured["send_kwargs"]["system_instruction"] == (
+        "Test portfolio instructions"
+    )
+    assert dependencies.captured["send_kwargs"]["document_loader"] is chat_service.get_document
+    assert dependencies.captured["send_kwargs"]["previous_interaction_id"] is None
 
 
 def test_followup_message(dependencies, config):
@@ -134,6 +143,10 @@ def test_followup_message(dependencies, config):
         "gemini",
         "session_sign",
     ]
+    assert dependencies.captured["send_kwargs"]["previous_interaction_id"] == (
+        "previous-interaction-123"
+    )
+    assert dependencies.captured["send_kwargs"]["document_loader"] is chat_service.get_document
 
 
 def test_invalid_message_never_calls_gemini(dependencies, config):
