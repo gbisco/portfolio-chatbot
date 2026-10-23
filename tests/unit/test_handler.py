@@ -344,3 +344,159 @@ def test_oversized_base64_body_is_rejected(mock_chat):
     assert status == 400
     assert body["error"] == "invalid_request"
     assert mock_chat == []
+
+
+PUBLIC_ERROR_CASES = [
+    (
+        AuthenticationError("Invalid identity token"),
+        401,
+        "unauthorized",
+        "Please sign in with Google to use the assistant.",
+        "Invalid identity token",
+    ),
+    (
+        AuthenticationServiceError("Google token verification temporarily unavailable"),
+        503,
+        "authentication_unavailable",
+        "Authentication is temporarily unavailable.",
+        "Google token verification temporarily unavailable",
+    ),
+    (
+        ChatValidationError("Message exceeds maximum length"),
+        400,
+        "invalid_request",
+        "The chat request is invalid.",
+        "Message exceeds maximum length",
+    ),
+    (
+        SessionError("Conversation does not belong to this user"),
+        403,
+        "invalid_conversation",
+        "This conversation is invalid or unavailable.",
+        "Conversation does not belong to this user",
+    ),
+    (
+        SessionError("Conversation session expired"),
+        401,
+        "conversation_expired",
+        "Your conversation has expired. Please start a new chat.",
+        None,
+    ),
+    (
+        SessionError("Invalid conversation token"),
+        403,
+        "invalid_conversation",
+        "This conversation is invalid or unavailable.",
+        "Invalid conversation token",
+    ),
+    (
+        GeminiConversationExpired("Gemini could not retrieve the previous interaction"),
+        401,
+        "conversation_expired",
+        "Your conversation has expired. Please start a new chat.",
+        "Gemini could not retrieve the previous interaction",
+    ),
+    (
+        RateLimitServiceError("Unable to enforce usage limits"),
+        503,
+        "usage_service_unavailable",
+        "The assistant is temporarily unavailable.",
+        "Unable to enforce usage limits",
+    ),
+    (
+        GeminiServiceError("Gemini is temporarily unavailable"),
+        502,
+        "ai_service_unavailable",
+        "The assistant couldn't complete your request. Please try again.",
+        None,
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "error, status_code, error_code, public_message, internal_detail",
+    PUBLIC_ERROR_CASES,
+)
+def test_known_errors_return_public_messages_only(
+    monkeypatch,
+    error,
+    status_code,
+    error_code,
+    public_message,
+    internal_detail,
+):
+    monkeypatch.setattr(
+        "src.handler.process_chat",
+        lambda *args: (_ for _ in ()).throw(error),
+    )
+
+    response = lambda_handler(make_event(), None)
+    status, body = parse_response(response)
+
+    assert status == status_code
+    assert body == {
+        "error": error_code,
+        "message": public_message,
+    }
+
+    if internal_detail and internal_detail != public_message:
+        assert internal_detail not in response["body"]
+
+
+@pytest.mark.parametrize(
+    "reason, public_message",
+    [
+        (
+            "account_blocked",
+            "Chat access is currently unavailable for this account.",
+        ),
+        (
+            "user_daily_limit",
+            "You've reached your daily message limit. Please try again tomorrow.",
+        ),
+        (
+            "global_hourly_limit",
+            "The assistant is experiencing high traffic. Please try again later.",
+        ),
+        (
+            "global_daily_limit",
+            "The assistant has reached its capacity for today. Please try again tomorrow.",
+        ),
+    ],
+)
+def test_rate_limit_messages_are_public(monkeypatch, reason, public_message):
+    monkeypatch.setattr(
+        "src.handler.process_chat",
+        lambda *args: (_ for _ in ()).throw(RateLimitDenied(reason)),
+    )
+
+    response = lambda_handler(make_event(), None)
+    status, body = parse_response(response)
+
+    assert status == 429
+    assert body == {
+        "error": reason,
+        "message": public_message,
+    }
+
+
+def test_configuration_error_does_not_expose_internal_details(monkeypatch):
+    monkeypatch.setattr(
+        "src.handler.load_config",
+        lambda: (_ for _ in ()).throw(
+            ConfigurationError(
+                "Missing required environment variable: GEMINI_API_KEY"
+            )
+        ),
+    )
+
+    response = lambda_handler(make_event(), None)
+    status, body = parse_response(response)
+
+    assert status == 500
+    assert body == {
+        "error": "configuration_error",
+        "message": "The assistant is temporarily unavailable.",
+    }
+    assert "GEMINI_API_KEY" not in response["body"]
+    assert "Missing required environment variable" not in response["body"]

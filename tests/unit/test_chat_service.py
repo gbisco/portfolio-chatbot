@@ -4,7 +4,7 @@ from unittest.mock import Mock, call
 import pytest
 
 from src.auth.google_auth import AuthenticatedUser, AuthenticationError
-from src.auth.session import SessionError
+from src.auth.session import SessionError, sign_interaction
 from src.chat.chat_service import ChatResponse, process_chat
 from src.chat import chat_service
 from src.chat.gemini_client import (
@@ -66,6 +66,7 @@ def dependencies(monkeypatch):
 
     def fake_send(message, config, **kwargs):
         calls.append("gemini")
+        captured["message"] = message
         captured["send_kwargs"] = kwargs
         return GeminiResponse(
             text="Project Alpha uses React.",
@@ -254,3 +255,125 @@ def test_expired_gemini_interaction_is_propagated(
 
     assert "rate_limit" in dependencies.calls
     assert "session_sign" not in dependencies.calls
+
+
+def ownership_config():
+    return SimpleNamespace(
+        google_client_id="test-google-client-id",
+        max_message_length=100,
+        session_hmac_secret="test-session-secret",
+        session_token_ttl_seconds=86400,
+        max_conversation_token_length=4096,
+    )
+
+
+def mock_external_chat_dependencies(monkeypatch, user_id):
+    """Mock Google, quota, knowledge, and Gemini. Use real session HMAC."""
+
+    from src.chat import chat_service
+
+    calls = []
+
+    def fake_auth(token, config):
+        calls.append("auth")
+        return AuthenticatedUser(user_id=user_id)
+
+    def fake_rate_limit(user, config):
+        calls.append("rate_limit")
+
+    def fake_knowledge():
+        calls.append("knowledge")
+        return "Test portfolio instructions"
+
+    def fake_send(message, config, **kwargs):
+        calls.append("gemini")
+        return GeminiResponse(
+            text="Project Alpha uses React.",
+            interaction_id="new-interaction-456",
+        )
+
+    monkeypatch.setattr(chat_service, "verify_google_id_token", fake_auth)
+    monkeypatch.setattr(chat_service, "enforce_rate_limits", fake_rate_limit)
+    monkeypatch.setattr(chat_service, "load_system_instruction", fake_knowledge)
+    monkeypatch.setattr(chat_service, "send_message", fake_send)
+
+    return calls
+
+
+def signed_token_for(user_id, config, interaction_id="previous-interaction-123"):
+    return sign_interaction(
+        AuthenticatedUser(user_id=user_id),
+        CONVERSATION_ID,
+        interaction_id,
+        config.session_hmac_secret,
+        config.session_token_ttl_seconds,
+    )
+
+
+def test_token_for_user_a_is_rejected_for_user_b(monkeypatch):
+    config = ownership_config()
+    token = signed_token_for("google-user-a", config)
+    calls = mock_external_chat_dependencies(monkeypatch, "google-user-b")
+
+    with pytest.raises(SessionError, match="belong"):
+        process_chat(
+            "google-id-token",
+            make_payload(conversation_token=token),
+            config,
+        )
+
+    assert "gemini" not in calls
+    assert "rate_limit" not in calls
+
+
+def test_expired_conversation_token_never_reaches_gemini(monkeypatch):
+    from src.auth import session
+
+    config = ownership_config()
+    monkeypatch.setattr(session.time, "time", lambda: 1_000)
+    token = signed_token_for("google-user-123", config)
+    monkeypatch.setattr(
+        session.time,
+        "time",
+        lambda: 1_000 + config.session_token_ttl_seconds,
+    )
+    calls = mock_external_chat_dependencies(monkeypatch, "google-user-123")
+
+    with pytest.raises(SessionError, match="expired"):
+        process_chat(
+            "google-id-token",
+            make_payload(conversation_token=token),
+            config,
+        )
+
+    assert "gemini" not in calls
+    assert "rate_limit" not in calls
+
+
+def test_tampered_conversation_token_never_reaches_gemini(monkeypatch):
+    config = ownership_config()
+    token = signed_token_for("google-user-123", config)
+    encoded, signature = token.split(".")
+    tampered = f"{encoded}.{'A' if signature[0] != 'A' else 'B'}{signature[1:]}"
+    calls = mock_external_chat_dependencies(monkeypatch, "google-user-123")
+
+    with pytest.raises(SessionError):
+        process_chat(
+            "google-id-token",
+            make_payload(conversation_token=tampered),
+            config,
+        )
+
+    assert "gemini" not in calls
+    assert "rate_limit" not in calls
+
+
+def test_visitor_message_is_not_added_to_system_instruction(dependencies, config):
+    process_chat("google-id-token", make_payload(), config)
+
+    visitor_message = "Tell me about Project Alpha"
+    system_instruction = dependencies.captured["send_kwargs"]["system_instruction"]
+
+    assert dependencies.captured["message"] == visitor_message
+    assert visitor_message not in system_instruction
+    assert system_instruction == "Test portfolio instructions"

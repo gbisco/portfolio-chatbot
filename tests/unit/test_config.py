@@ -24,6 +24,13 @@ REQUIRED_INTS = {
 
 ALL_REQUIRED = {**REQUIRED_STRINGS, **REQUIRED_INTS}
 
+# Production intent. These tests load limits from the environment instead.
+INTENDED_PRODUCTION_USAGE_LIMITS = {
+    "user_daily_limit": 10,
+    "global_hourly_limit": 40,
+    "global_daily_limit": 150,
+}
+
 
 def set_valid_env(monkeypatch) -> None:
     for name, value in ALL_REQUIRED.items():
@@ -114,3 +121,29 @@ def test_environment_isolation_between_loads(monkeypatch):
     assert second.gemini_model == "another-gemini-model"
     assert second.user_daily_limit == 99
     assert first is not second
+
+
+def test_usage_limits_come_from_environment_not_production_defaults(monkeypatch):
+    set_valid_env(monkeypatch)
+
+    config = load_config()
+
+    assert config.user_daily_limit == 10
+    assert config.global_hourly_limit == 50
+    assert config.global_daily_limit == 200
+    assert config.global_hourly_limit != INTENDED_PRODUCTION_USAGE_LIMITS[
+        "global_hourly_limit"
+    ]
+    assert config.global_daily_limit != INTENDED_PRODUCTION_USAGE_LIMITS[
+        "global_daily_limit"
+    ]
+
+    monkeypatch.setenv("USER_DAILY_LIMIT", "3")
+    monkeypatch.setenv("GLOBAL_HOURLY_LIMIT", "4")
+    monkeypatch.setenv("GLOBAL_DAILY_LIMIT", "5")
+
+    isolated = load_config()
+
+    assert isolated.user_daily_limit == 3
+    assert isolated.global_hourly_limit == 4
+    assert isolated.global_daily_limit == 5
